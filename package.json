@@ -1,0 +1,17 @@
+{
+  "name": "haven-twitter-agent",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "post": "node --env-file=.env agent.js --post",
+    "reply": "node --env-file=.env agent.js --reply",
+    "like": "node --env-file=.env agent.js --like",
+    "follow": "node --env-file=.env agent.js --follow"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.37.0",
+    "playwright": "^1.61.1",
+    "twitter-api-v2": "^1.18.0"
+  }
+}
