@@ -12,49 +12,39 @@ const __dir = path.dirname(fileURLToPath(import.meta.url));
 const OUT   = path.join(__dir, "images");
 if (!fs.existsSync(OUT)) fs.mkdirSync(OUT);
 
-const HF_TOKEN = process.env.HF_API_TOKEN;
-const MODEL    = "black-forest-labs/FLUX.1-schnell";
+// Pollinations.ai — free, no API key needed
+const STYLE = "16-bit pixel art style, retro RPG game, dark fantasy, limited color palette, crisp pixels, no blur, SNES era aesthetic";
 
 const PROMPTS = [
-  "epic dark fantasy castle on a cliff at sunset, glowing purple crystals, mystical fog, digital art style, game concept art",
-  "ancient stone fortress surrounded by mountains, golden hour lighting, fantasy RPG art style, cinematic",
-  "medieval castle towers with Solana blockchain purple glow effects, futuristic fantasy hybrid, dramatic sky",
-  "knights and wizards defending a massive fortress, dark fantasy, Solana purple energy beams, concept art",
-  "bird eye view of vast fantasy kingdom with multiple castles, resource mines, dark forest, game map art",
-  "glowing purple portal inside a medieval throne room, mystical runes, dark fantasy atmosphere, 4K",
-  "fantasy blacksmith forging glowing weapons, iron and stone resources, warm forge lighting, game art",
-  "massive dark fantasy tower piercing through storm clouds, lightning, purple energy, ominous sky",
-  "solana logo merged with medieval castle silhouette, purple gradients, crypto art, minimalist",
-  "fantasy gold coins and gems spilling from a treasure chest, dark dungeon, dramatic lighting, game UI art",
-  "aerial view of HAVEN empire with farmlands, mines, forests, rivers, fantasy game world map",
-  "dark knight on horseback overlooking glowing magical kingdom at night, stars, digital painting",
-  "epic fantasy battle scene at castle gates, purple magic explosions, siege weapons, concept art",
-  "cozy medieval tavern inside a castle, warm candles, adventurers, fantasy RPG vibe, detailed art",
-  "Solana-powered futuristic castle floating in the sky, neon purple energy fields, sci-fi fantasy",
+  `massive dark fantasy castle on a cliff at night, glowing purple windows, pixel art, ${STYLE}`,
+  `medieval stone fortress with watchtowers, moonlight, purple crystals, ${STYLE}`,
+  `fantasy kingdom map with castle, forest, mountains, river, top-down view, ${STYLE}`,
+  `blacksmith shop interior with glowing forge, iron ingots, stone blocks, ${STYLE}`,
+  `dark knight standing before castle gates, dramatic silhouette, ${STYLE}`,
+  `treasure room with gold coins, gems, glowing artifacts, dungeon, ${STYLE}`,
+  `castle throne room with purple magical portal, runes on floor, ${STYLE}`,
+  `wizard tower at night with stars, purple lightning, mystical, ${STYLE}`,
+  `fantasy village at the base of a massive castle, lanterns, ${STYLE}`,
+  `underground mine with iron ore, workers, torches, deep cave, ${STYLE}`,
+  `aerial view of a fantasy empire, multiple buildings, farms, roads, ${STYLE}`,
+  `castle under siege, catapults, purple explosions, epic battle, ${STYLE}`,
+  `dark forest with glowing purple mushrooms leading to a castle, ${STYLE}`,
+  `hero character leveling up, purple aura, stat screen UI overlay, ${STYLE}`,
+  `solana purple coin with castle emblem, floating magic gems, ${STYLE}`,
 ];
 
 async function generateImage(prompt, index) {
   const file = path.join(OUT, `haven_${String(index).padStart(2, "0")}.jpg`);
   if (fs.existsSync(file)) { console.log(`  skip ${index} (exists)`); return; }
 
-  const headers = { "Content-Type": "application/json" };
-  if (HF_TOKEN) headers["Authorization"] = `Bearer ${HF_TOKEN}`;
+  // Pollinations.ai — free, no auth needed
+  const encoded = encodeURIComponent(prompt);
+  const url = `https://image.pollinations.ai/prompt/${encoded}?width=768&height=512&nologo=true&seed=${index * 42}`;
 
-  const res = await fetch(`https://api-inference.huggingface.co/models/${MODEL}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ inputs: prompt, parameters: { width: 768, height: 512 } }),
-  });
+  const res = await fetch(url).catch(e => { throw new Error(`Network: ${e.message}`); });
 
   if (!res.ok) {
-    const err = await res.text();
-    // Model loading — retry once after delay
-    if (err.includes("loading") || res.status === 503) {
-      console.log(`  Model loading, waiting 20s...`);
-      await new Promise(r => setTimeout(r, 20000));
-      return generateImage(prompt, index);
-    }
-    console.log(`  ❌ ${index}: ${res.status} — ${err.slice(0, 100)}`);
+    console.log(`  ❌ ${index}: ${res.status}`);
     return;
   }
 
@@ -65,7 +55,7 @@ async function generateImage(prompt, index) {
 
 async function main() {
   console.log(`Generating ${PROMPTS.length} HAVEN images...`);
-  console.log(`Model: ${MODEL}\n`);
+  console.log(`Service: Pollinations.ai (free)\n`);
 
   for (let i = 0; i < PROMPTS.length; i++) {
     console.log(`[${i + 1}/${PROMPTS.length}] ${PROMPTS[i].slice(0, 60)}...`);

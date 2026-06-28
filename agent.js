@@ -1,9 +1,7 @@
 /**
- * HAVEN AI Twitter Agent
- * - Posts tweets (with optional images) at random times
- * - Replies to Solana/gaming tweets
- * - Likes 30-50 posts/day
- * - Follows 10-15 Solana accounts/day
+ * HAVEN AI Twitter Agent — Growth Mode
+ * Goal: maximize followers and impressions
+ * Tactics: hot-take replies, quote tweets, mass follow, engagement bursts
  */
 
 import { chromium } from "playwright";
@@ -12,11 +10,11 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-const __dir   = path.dirname(fileURLToPath(import.meta.url));
-const SESSION  = path.join(__dir, "session.json");
-const QUEUE    = path.join(__dir, "queue.json");
-const LOG      = path.join(__dir, "agent.log");
-const IMG_DIR  = path.join(__dir, "images");
+const __dir  = path.dirname(fileURLToPath(import.meta.url));
+const SESSION = path.join(__dir, "session.json");
+const QUEUE   = path.join(__dir, "queue.json");
+const LOG     = path.join(__dir, "agent.log");
+const IMG_DIR = path.join(__dir, "images");
 
 export const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -42,12 +40,10 @@ export function loadQueue() {
 }
 export function saveQueue(q) { fs.writeFileSync(QUEUE, JSON.stringify(q, null, 2)); }
 
-// ── Random image picker ───────────────────────────────────────────────────────
 function randomImage() {
   if (!fs.existsSync(IMG_DIR)) return null;
   const files = fs.readdirSync(IMG_DIR).filter(f => /\.(jpg|jpeg|png)$/i.test(f));
-  if (!files.length) return null;
-  return path.join(IMG_DIR, files[Math.floor(Math.random() * files.length)]);
+  return files.length ? path.join(IMG_DIR, files[Math.floor(Math.random() * files.length)]) : null;
 }
 
 // ── Browser ───────────────────────────────────────────────────────────────────
@@ -67,59 +63,116 @@ export async function openBrowser(headless = true) {
 
 // ── Post tweet ────────────────────────────────────────────────────────────────
 export async function postTweet(text, useImage = true) {
-  log(`Posting tweet (${text.length} chars)...`);
+  log(`Posting: "${text.slice(0, 60)}..."`);
   const { browser, ctx } = await openBrowser(true);
   const page = await ctx.newPage();
-
   await page.goto("https://x.com/home", { timeout: 60000, waitUntil: "domcontentloaded" });
   await page.waitForTimeout(3000);
   if (page.url().includes("login")) { log("Session expired"); await browser.close(); return false; }
 
-  const composeBtn = page.locator('[data-testid="SideNav_NewTweet_Button"]').first();
-  await composeBtn.waitFor({ timeout: 10000 });
-  await composeBtn.click();
+  const compose = page.locator('[data-testid="SideNav_NewTweet_Button"]').first();
+  await compose.waitFor({ timeout: 10000 });
+  await compose.click();
   await page.waitForTimeout(2000);
 
-  // Attach image (70% of tweets)
-  if (useImage && Math.random() < 0.7) {
+  if (useImage && Math.random() < 0.6) {
     const img = randomImage();
     if (img) {
       try {
-        const fileInput = page.locator('input[type="file"]').first();
-        await fileInput.setInputFiles(img);
+        await page.locator('input[type="file"]').first().setInputFiles(img);
         await page.waitForTimeout(3000);
-        log(`  📷 Attached image: ${path.basename(img)}`);
-      } catch (e) { log(`  ⚠️ Image attach failed: ${e.message.slice(0, 60)}`); }
+        log(`  📷 Image: ${path.basename(img)}`);
+      } catch {}
     }
   }
 
   const editor = page.locator('[data-testid="tweetTextarea_0"]').first();
   await editor.waitFor({ timeout: 10000 });
   await editor.click();
-  await page.keyboard.type(text, { delay: 25 });
+  await page.keyboard.type(text, { delay: 22 });
   await page.waitForTimeout(1500);
-
   await page.waitForSelector('[data-testid="tweetButton"]', { timeout: 5000 });
   await page.evaluate(() => document.querySelector('[data-testid="tweetButton"]')?.click());
   await page.waitForTimeout(4000);
   await browser.close();
-  log("✅ Tweet posted!");
+  log("✅ Posted!");
   return true;
 }
 
-// ── Reply to Solana tweets ────────────────────────────────────────────────────
-const REPLY_QUERIES = [
+// ── HOT TAKE reply (growth tactic #1) ────────────────────────────────────────
+// Reply to big accounts with provocative takes to get visibility
+const BIG_ACCOUNTS = [
+  "aeyakovenko", "rajgokal", "0xMert_", "blknoiz06", "cobie",
+  "inversebrah", "CryptoKaleo", "ansem", "Pentosh1", "notthreadguy",
+  "pumpdotfun", "JupiterExchange", "heliuslabs",
+];
+
+export async function replyToBigAccount() {
+  const handle = BIG_ACCOUNTS[Math.floor(Math.random() * BIG_ACCOUNTS.length)];
+  log(`Hot-take reply to @${handle}...`);
+  const { browser, ctx } = await openBrowser(true);
+  const page = await ctx.newPage();
+
+  await page.goto(`https://x.com/${handle}`, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(4000);
+
+  const tweets = await page.locator('[data-testid="tweet"]').all();
+  if (!tweets.length) { await browser.close(); return; }
+
+  const pick = tweets[Math.floor(Math.random() * Math.min(3, tweets.length))];
+  const tweetText = await pick.locator('[data-testid="tweetText"]').first().textContent().catch(() => "");
+  if (!tweetText) { await browser.close(); return; }
+
+  const msg = await claude.messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 140,
+    messages: [{
+      role: "user",
+      content: `You are @havenempiresol — a Web3 idle castle game on Solana, building a community.
+Reply to this tweet from a major Solana influencer: "${tweetText.slice(0, 250)}"
+
+Write a short, ENGAGING reply (max 200 chars) that will get attention. Use one of these styles (pick what fits):
+- Bold hot take / unpopular opinion
+- Funny/witty observation
+- Genuine insight that adds value
+- Relatable reaction
+- Interesting question that sparks debate
+
+DO NOT sound like a bot or shill the game. Sound like a smart crypto degen. Output only the reply.`,
+    }],
+  });
+  const reply = msg.content[0].text.trim();
+
+  try {
+    await pick.locator('[data-testid="reply"]').first().click();
+    await page.waitForTimeout(2000);
+    const editor = page.locator('[data-testid="tweetTextarea_0"]').last();
+    await editor.waitFor({ timeout: 8000 });
+    await editor.click();
+    await page.keyboard.type(reply, { delay: 28 });
+    await page.waitForTimeout(1000);
+    await page.evaluate(() => document.querySelector('[data-testid="tweetButton"]')?.click());
+    await page.waitForTimeout(3000);
+    log(`  ✅ Replied to @${handle}: "${reply.slice(0, 80)}"`);
+  } catch (e) { log(`  ⚠️ ${e.message.slice(0, 60)}`); }
+
+  await browser.close();
+}
+
+// ── Trending reply (growth tactic #2) ────────────────────────────────────────
+const TRENDING_QUERIES = [
   "https://x.com/search?q=%23Solana&f=top",
   "https://x.com/search?q=%23SolanaGaming&f=live",
-  "https://x.com/search?q=Solana%20game%20Web3&f=top",
-  "https://x.com/search?q=%23SolanaNFT&f=live",
   "https://x.com/search?q=Solana%20airdrop&f=top",
-  "https://x.com/search?q=%23crypto%20game%20Solana&f=live",
+  "https://x.com/search?q=%23crypto%20game&f=top",
+  "https://x.com/search?q=Web3%20gaming%202026&f=top",
+  "https://x.com/search?q=%23BONK%20OR%20%23WIF%20Solana&f=top",
+  "https://x.com/search?q=Solana%20pump&f=live",
 ];
 
 export async function replyToTrending() {
-  const query = REPLY_QUERIES[Math.floor(Math.random() * REPLY_QUERIES.length)];
-  log(`Replying to tweets: ${query.split("q=")[1]?.split("&")[0]}...`);
+  const query = TRENDING_QUERIES[Math.floor(Math.random() * TRENDING_QUERIES.length)];
+  log(`Replying trending: ${decodeURIComponent(query.split("q=")[1]?.split("&")[0] ?? "")}...`);
   const { browser, ctx } = await openBrowser(true);
   const page = await ctx.newPage();
 
@@ -129,20 +182,20 @@ export async function replyToTrending() {
   const tweets = await page.locator('[data-testid="tweet"]').all();
   if (!tweets.length) { await browser.close(); return; }
 
-  // Reply to 1-2 tweets per session
-  const count = Math.min(Math.floor(Math.random() * 2) + 1, tweets.length);
+  const count = Math.min(2, tweets.length);
   for (let i = 0; i < count; i++) {
-    const pick = tweets[Math.floor(Math.random() * Math.min(8, tweets.length))];
+    const pick = tweets[Math.floor(Math.random() * Math.min(6, tweets.length))];
     const tweetText = await pick.locator('[data-testid="tweetText"]').first().textContent().catch(() => "");
     if (!tweetText) continue;
 
     const msg = await claude.messages.create({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 120,
+      max_tokens: 130,
       messages: [{
         role: "user",
-        content: `You are @havenempiresol — a Web3 idle castle game on Solana. Reply to: "${tweetText.slice(0, 200)}"
-Write 1 short sentence, max 160 chars, sound like a real person in the Solana community (not a bot), friendly and engaging. Only mention havenempire.xyz if it fits naturally. Output only the reply.`,
+        content: `You are @havenempiresol — crypto degen building HAVEN game on Solana.
+Reply to: "${tweetText.slice(0, 200)}"
+Be engaging, max 180 chars. Style: witty/relatable/insight. Mention havenempire.xyz only if very natural. Sound human. Output reply only.`,
       }],
     });
     const reply = msg.content[0].text.trim();
@@ -150,137 +203,149 @@ Write 1 short sentence, max 160 chars, sound like a real person in the Solana co
     try {
       await pick.locator('[data-testid="reply"]').first().click();
       await page.waitForTimeout(2000);
-      const editor = page.locator('[data-testid="tweetTextarea_0"]').last();
-      await editor.waitFor({ timeout: 8000 });
-      await editor.click();
+      const ed = page.locator('[data-testid="tweetTextarea_0"]').last();
+      await ed.waitFor({ timeout: 8000 });
+      await ed.click();
       await page.keyboard.type(reply, { delay: 28 });
       await page.waitForTimeout(1000);
       await page.evaluate(() => document.querySelector('[data-testid="tweetButton"]')?.click());
-      await page.waitForTimeout(3000);
-      log(`  ✅ Replied: ${reply.slice(0, 80)}...`);
-    } catch (e) { log(`  ⚠️ Reply failed: ${e.message.slice(0, 60)}`); }
+      await page.waitForTimeout(4000);
+      log(`  ✅ Reply: "${reply.slice(0, 70)}"`);
+    } catch (e) { log(`  ⚠️ ${e.message.slice(0, 50)}`); }
 
-    await page.waitForTimeout(5000 + Math.random() * 5000);
+    await page.waitForTimeout(4000 + Math.random() * 4000);
   }
-
   await browser.close();
 }
 
-// ── Like tweets (high volume) ─────────────────────────────────────────────────
+// ── Mass like (growth tactic #3) ─────────────────────────────────────────────
 const LIKE_QUERIES = [
   "https://x.com/search?q=%23Solana&f=live",
   "https://x.com/search?q=%23SolanaGaming&f=live",
-  "https://x.com/search?q=Solana%20Web3&f=live",
-  "https://x.com/search?q=%23SolanaNFT&f=live",
   "https://x.com/search?q=Solana%20game&f=live",
-  "https://x.com/search?q=%23Solana%20token&f=live",
-  "https://x.com/search?q=crypto%20gaming%202026&f=live",
+  "https://x.com/search?q=%23SolanaNFT&f=live",
+  "https://x.com/search?q=crypto%20gaming&f=live",
   "https://x.com/search?q=%23defi%20Solana&f=live",
+  "https://x.com/search?q=Web3%20idle%20game&f=live",
+  "https://x.com/search?q=%23HAVEN%20crypto&f=live",
 ];
 
 export async function likeTweets() {
   const query = LIKE_QUERIES[Math.floor(Math.random() * LIKE_QUERIES.length)];
-  log(`Liking tweets: ${query.split("q=")[1]?.split("&")[0]}...`);
+  log(`Liking: ${decodeURIComponent(query.split("q=")[1]?.split("&")[0] ?? "")}...`);
   const { browser, ctx } = await openBrowser(true);
   const page = await ctx.newPage();
-
   await page.goto(query, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(4000);
 
-  // Scroll to load more tweets
-  for (let s = 0; s < 3; s++) {
-    await page.evaluate(() => window.scrollBy(0, 800));
-    await page.waitForTimeout(1500);
+  for (let s = 0; s < 4; s++) {
+    await page.evaluate(() => window.scrollBy(0, 700));
+    await page.waitForTimeout(1200);
   }
 
   const tweets = await page.locator('[data-testid="tweet"]').all();
-  const count  = Math.min(Math.floor(Math.random() * 6) + 5, tweets.length); // 5-10 per session
-
+  const count  = Math.min(Math.floor(Math.random() * 6) + 7, tweets.length); // 7-12 per session
   let liked = 0;
+
   for (let i = 0; i < count; i++) {
     try {
-      const likeBtn = tweets[i].locator('[data-testid="like"]').first();
-      const btnText = await likeBtn.getAttribute("aria-label").catch(() => "");
-      if (btnText?.toLowerCase().includes("liked")) continue; // already liked
-      await likeBtn.click();
+      const btn = tweets[i].locator('[data-testid="like"]').first();
+      const label = await btn.getAttribute("aria-label").catch(() => "");
+      if (label?.toLowerCase().includes("liked")) continue;
+      await btn.click();
       liked++;
-      await page.waitForTimeout(1200 + Math.random() * 1800);
+      await page.waitForTimeout(800 + Math.random() * 1200);
     } catch {}
   }
-
   await browser.close();
   log(`✅ Liked ${liked} tweets`);
   return liked;
 }
 
-// ── Follow Solana influencers ─────────────────────────────────────────────────
-const SOLANA_ACCOUNTS = [
-  // Core Solana
-  "solana", "aeyakovenko", "rajgokal", "Mert_Mumtaz", "0xMert_",
-  "brian_friel", "therealchaseeb", "armaniferrante", "blknoiz06",
-  // Solana ecosystem
-  "heliuslabs", "JupiterExchange", "pumpdotfun", "solanaFndn",
-  "solanafloor", "MagicEden", "tensor_hq", "DriftProtocol",
-  "MarinadeFinance", "SolanaLegend", "SolanaSun",
-  // Crypto/gaming
-  "KyleSamani", "DegenPoet", "cobie", "inversebrah",
-  "CryptoKaleo", "Pentosh1", "notthreadguy",
-  "NFT_GOD", "iamDCinvestor", "CryptoGodJohn",
+// ── Mass follow (growth tactic #4) ───────────────────────────────────────────
+// Follow followers of big accounts — they often follow back
+const FOLLOW_SOURCES = [
+  "solana", "pumpdotfun", "JupiterExchange", "aeyakovenko",
+  "heliuslabs", "MagicEden", "tensor_hq", "blknoiz06",
 ];
 
-export async function followInfluencers() {
-  log("Following Solana accounts...");
+const DIRECT_FOLLOW = [
+  "solana", "aeyakovenko", "rajgokal", "Mert_Mumtaz", "0xMert_",
+  "brian_friel", "therealchaseeb", "armaniferrante", "blknoiz06",
+  "heliuslabs", "JupiterExchange", "pumpdotfun", "solanaFndn",
+  "solanafloor", "MagicEden", "tensor_hq", "DriftProtocol",
+  "KyleSamani", "DegenPoet", "cobie", "inversebrah",
+  "CryptoKaleo", "Pentosh1", "notthreadguy", "ansem",
+  "NFT_GOD", "iamDCinvestor", "CryptoGodJohn", "SolanaLegend",
+];
+
+export async function followUsers() {
+  log("Mass follow session...");
   const { browser, ctx } = await openBrowser(true);
   const page = await ctx.newPage();
-
-  // Pick 4-6 random accounts per session
-  const picks = [...SOLANA_ACCOUNTS].sort(() => 0.5 - Math.random()).slice(0, Math.floor(Math.random() * 3) + 4);
   let followed = 0;
 
+  // Strategy A: follow followers of a big account
+  if (Math.random() > 0.4) {
+    const source = FOLLOW_SOURCES[Math.floor(Math.random() * FOLLOW_SOURCES.length)];
+    await page.goto(`https://x.com/${source}/followers`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(4000);
+
+    const followBtns = await page.locator('[data-testid="UserCell"] [data-testid="placementTracking"]').all();
+    const count = Math.min(Math.floor(Math.random() * 5) + 5, followBtns.length); // 5-9
+
+    for (let i = 0; i < count; i++) {
+      try {
+        const txt = await followBtns[i].textContent().catch(() => "");
+        if (txt?.toLowerCase().includes("follow") && !txt?.toLowerCase().includes("following")) {
+          await followBtns[i].click();
+          followed++;
+          await page.waitForTimeout(1500 + Math.random() * 1500);
+        }
+      } catch {}
+    }
+    log(`  Followed ${followed} followers of @${source}`);
+  }
+
+  // Strategy B: follow direct list
+  const picks = [...DIRECT_FOLLOW].sort(() => 0.5 - Math.random()).slice(0, 4);
   for (const handle of picks) {
     try {
       await page.goto(`https://x.com/${handle}`, { waitUntil: "domcontentloaded", timeout: 30000 });
       await page.waitForTimeout(2000);
-
-      // Try multiple selectors for follow button
       const btns = await page.locator('[data-testid="placementTracking"]').all();
-      let didFollow = false;
       for (const btn of btns) {
         const txt = await btn.textContent().catch(() => "");
         if (txt?.toLowerCase().includes("follow") && !txt?.toLowerCase().includes("following")) {
           await btn.click();
-          await page.waitForTimeout(1500);
           followed++;
-          didFollow = true;
+          await page.waitForTimeout(1500);
           break;
         }
       }
-      log(`  ${didFollow ? "✅ Followed" : "— already following"} @${handle}`);
-    } catch (e) {
-      log(`  ⚠️ @${handle}: ${e.message.slice(0, 50)}`);
-    }
-    await page.waitForTimeout(2000 + Math.random() * 2000);
+    } catch {}
+    await page.waitForTimeout(1500 + Math.random() * 1500);
   }
 
   await browser.close();
-  log(`✅ Followed ${followed} new accounts`);
+  log(`✅ Total followed: ${followed}`);
   return followed;
 }
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const action = process.argv[2];
-  const run = async () => {
-    if (action === "--post") {
+  ({
+    "--post":   async () => {
       const q = loadQueue();
-      if (q.index >= q.tweets.length) { log("All tweets posted!"); return; }
+      if (q.index >= q.tweets.length) { log("Queue empty!"); return; }
       const ok = await postTweet(q.tweets[q.index]);
       if (ok) { q.index++; q.posted++; saveQueue(q); }
-    }
-    else if (action === "--reply")  await replyToTrending();
-    else if (action === "--like")   await likeTweets();
-    else if (action === "--follow") await followInfluencers();
-    else log("Usage: agent.js --post | --reply | --like | --follow");
-  };
-  run().catch(e => { log(`ERROR: ${e.message}`); process.exit(1); });
+    },
+    "--reply":  replyToTrending,
+    "--hottake": replyToBigAccount,
+    "--like":   likeTweets,
+    "--follow": followUsers,
+  }[action] ?? (() => log("Usage: --post | --reply | --hottake | --like | --follow")))()
+    .catch(e => { log(`ERROR: ${e.message}`); process.exit(1); });
 }
