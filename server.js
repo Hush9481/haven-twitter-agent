@@ -1,6 +1,10 @@
 /**
  * HAVEN Twitter Agent — Railway server
- * Runs 24/7, schedules all actions at random times each day
+ * Daily activity target:
+ *   - 1-2 tweets (with images)
+ *   - 5-8 reply sessions (~8-12 replies/day)
+ *   - 6-8 like sessions (~40-60 likes/day)
+ *   - 3-4 follow sessions (~15-20 follows/day)
  */
 
 import fs from "fs";
@@ -8,72 +12,70 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { log, loadQueue, saveQueue, postTweet, replyToTrending, likeTweets, followInfluencers } from "./agent.js";
 
-// On Railway: restore session.json from SESSION_B64 env var
 const SESSION = path.join(path.dirname(fileURLToPath(import.meta.url)), "session.json");
 if (process.env.SESSION_B64 && !fs.existsSync(SESSION)) {
   fs.writeFileSync(SESSION, Buffer.from(process.env.SESSION_B64, "base64").toString("utf-8"));
-  log("Session restored from SESSION_B64 env var");
+  log("Session restored from SESSION_B64");
 }
 
-// Random ms between minH and maxH hours from now
-function hoursMs(minH, maxH) {
-  return (minH + Math.random() * (maxH - minH)) * 3600 * 1000;
-}
-// Random ms between minM and maxM minutes
-function minsMs(minM, maxM) {
-  return (minM + Math.random() * (maxM - minM)) * 60 * 1000;
-}
+// Random delay helpers
+const hrs  = (min, max) => (min + Math.random() * (max - min)) * 3600000;
+const mins = (min, max) => (min + Math.random() * (max - min)) * 60000;
 
-function scheduleOnce(label, delayMs, fn) {
-  const at = new Date(Date.now() + delayMs);
-  log(`Scheduled "${label}" at ${at.toISOString()}`);
+function schedule(label, delayMs, fn) {
+  const at = new Date(Date.now() + delayMs).toISOString().slice(11, 19);
+  log(`Scheduled "${label}" at ~${at} UTC`);
   setTimeout(async () => {
-    log(`Running "${label}"...`);
+    log(`▶ Running: ${label}`);
     try { await fn(); } catch (e) { log(`ERROR in "${label}": ${e.message}`); }
   }, delayMs);
 }
 
 async function planDay() {
-  log("=== Planning new day of activity ===");
+  log("=== Planning activity for the next 24h ===");
 
-  // 1-2 tweets per day at random times (morning/afternoon)
-  scheduleOnce("post-tweet-1", hoursMs(1, 4), async () => {
+  // ── TWEETS (1-2/day) ────────────────────────────────────────────────────────
+  schedule("tweet-1", hrs(0.5, 3), async () => {
     const q = loadQueue();
-    if (q.index >= q.tweets.length) { log("Queue empty!"); return; }
-    const ok = await postTweet(q.tweets[q.index]);
+    if (q.index >= q.tweets.length) { log("Queue empty — need new tweets"); return; }
+    const ok = await postTweet(q.tweets[q.index], true);
     if (ok) { q.index++; q.posted++; saveQueue(q); }
   });
 
-  // Sometimes post a second tweet in the evening
-  if (Math.random() > 0.4) {
-    scheduleOnce("post-tweet-2", hoursMs(7, 12), async () => {
+  if (Math.random() > 0.35) {
+    schedule("tweet-2", hrs(8, 14), async () => {
       const q = loadQueue();
       if (q.index >= q.tweets.length) return;
-      const ok = await postTweet(q.tweets[q.index]);
+      const ok = await postTweet(q.tweets[q.index], true);
       if (ok) { q.index++; q.posted++; saveQueue(q); }
     });
   }
 
-  // Reply to trending 1-2x per day
-  scheduleOnce("reply-1", hoursMs(2, 6), replyToTrending);
-  if (Math.random() > 0.5) {
-    scheduleOnce("reply-2", hoursMs(9, 14), replyToTrending);
+  // ── REPLIES (5-8 sessions/day) ───────────────────────────────────────────────
+  const replySessions = Math.floor(Math.random() * 4) + 5; // 5-8
+  for (let i = 0; i < replySessions; i++) {
+    schedule(`reply-${i + 1}`, hrs(i * 2.5 + Math.random() * 1.5, i * 2.5 + 2.5), replyToTrending);
   }
 
-  // Like tweets 2x per day
-  scheduleOnce("like-1", minsMs(20, 90), likeTweets);
-  scheduleOnce("like-2", hoursMs(5, 10), likeTweets);
-
-  // Follow influencers once per day (not every day)
-  if (Math.random() > 0.3) {
-    scheduleOnce("follow", hoursMs(3, 8), followInfluencers);
+  // ── LIKES (6-8 sessions, 5-10 likes each = ~40-60/day) ──────────────────────
+  const likeSessions = Math.floor(Math.random() * 3) + 6; // 6-8
+  for (let i = 0; i < likeSessions; i++) {
+    schedule(`like-${i + 1}`, hrs(i * 2.8 + Math.random() * 1.5, i * 2.8 + 3), likeTweets);
   }
 
-  // Schedule next day's plan in ~24h (with small random offset)
-  const nextDay = hoursMs(23, 25);
-  log(`Next day plan in ${Math.round(nextDay / 3600000)}h`);
+  // ── FOLLOWS (3-4 sessions, 4-6 follows each = ~15-20/day) ───────────────────
+  const followSessions = Math.floor(Math.random() * 2) + 3; // 3-4
+  for (let i = 0; i < followSessions; i++) {
+    schedule(`follow-${i + 1}`, hrs(i * 5 + Math.random() * 2, i * 5 + 5), followInfluencers);
+  }
+
+  // ── Next day ─────────────────────────────────────────────────────────────────
+  const nextDay = hrs(23, 25);
+  log(`Next daily plan in ~${Math.round(nextDay / 3600000)}h`);
   setTimeout(planDay, nextDay);
 }
 
-log("=== HAVEN Agent starting on Railway ===");
-planDay();
+log("=== HAVEN Twitter Agent starting on Railway ===");
+
+// Small initial delay to let container fully start
+setTimeout(planDay, 5000);
