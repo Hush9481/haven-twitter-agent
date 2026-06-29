@@ -75,14 +75,26 @@ export async function postTweet(text, useImage = true) {
   await compose.click();
   await page.waitForTimeout(2000);
 
-  if (useImage && Math.random() < 0.6) {
+  if (useImage && Math.random() < 0.85) {
     const img = randomImage();
     if (img) {
       try {
+        // Click the media/image button to activate file input
+        const mediaBtn = page.locator('[data-testid="attachments"]').first();
+        await mediaBtn.waitFor({ timeout: 5000 });
+        await mediaBtn.click();
+        await page.waitForTimeout(1000);
         await page.locator('input[type="file"]').first().setInputFiles(img);
-        await page.waitForTimeout(3000);
+        await page.waitForTimeout(4000);
         log(`  📷 Image: ${path.basename(img)}`);
-      } catch {}
+      } catch {
+        // Fallback: try direct file input without clicking media button
+        try {
+          await page.locator('input[type="file"]').first().setInputFiles(img);
+          await page.waitForTimeout(4000);
+          log(`  📷 Image (fallback): ${path.basename(img)}`);
+        } catch {}
+      }
     }
   }
 
@@ -97,6 +109,17 @@ export async function postTweet(text, useImage = true) {
   await browser.close();
   log("✅ Posted!");
   return true;
+}
+
+// Returns true if tweet is recent (within last 30 days)
+async function isTweetRecent(tweetEl) {
+  try {
+    const timeEl = await tweetEl.locator("time").first();
+    const datetime = await timeEl.getAttribute("datetime").catch(() => null);
+    if (!datetime) return true; // assume recent if no timestamp
+    const age = Date.now() - new Date(datetime).getTime();
+    return age < 30 * 24 * 3600 * 1000; // 30 days
+  } catch { return true; }
 }
 
 // ── HOT TAKE reply (growth tactic #1) ────────────────────────────────────────
@@ -119,7 +142,14 @@ export async function replyToBigAccount() {
   const tweets = await page.locator('[data-testid="tweet"]').all();
   if (!tweets.length) { await browser.close(); return; }
 
-  const pick = tweets[Math.floor(Math.random() * Math.min(3, tweets.length))];
+  // Pick only from recent tweets (last 30 days)
+  const recentTweets = [];
+  for (const t of tweets.slice(0, 8)) {
+    if (await isTweetRecent(t)) recentTweets.push(t);
+  }
+  if (!recentTweets.length) { log("  No recent tweets found"); await browser.close(); return; }
+
+  const pick = recentTweets[Math.floor(Math.random() * Math.min(3, recentTweets.length))];
   const tweetText = await pick.locator('[data-testid="tweetText"]').first().textContent().catch(() => "");
   if (!tweetText) { await browser.close(); return; }
 
@@ -182,9 +212,16 @@ export async function replyToTrending() {
   const tweets = await page.locator('[data-testid="tweet"]').all();
   if (!tweets.length) { await browser.close(); return; }
 
-  const count = Math.min(2, tweets.length);
+  // Filter to recent tweets only
+  const recentTweets = [];
+  for (const t of tweets.slice(0, 10)) {
+    if (await isTweetRecent(t)) recentTweets.push(t);
+  }
+  if (!recentTweets.length) { await browser.close(); return; }
+
+  const count = Math.min(2, recentTweets.length);
   for (let i = 0; i < count; i++) {
-    const pick = tweets[Math.floor(Math.random() * Math.min(6, tweets.length))];
+    const pick = recentTweets[Math.floor(Math.random() * recentTweets.length)];
     const tweetText = await pick.locator('[data-testid="tweetText"]').first().textContent().catch(() => "");
     if (!tweetText) continue;
 
