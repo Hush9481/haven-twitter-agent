@@ -3,4 +3,4 @@ node_modules/
 session.json
 agent.log
 queue.json
-tweets30.txt
+# tweets30.txt — included in repo so Railway can load the queue
