@@ -93,7 +93,7 @@ const PORT = process.env.PORT || 3000;
 let posting = false;
 
 http.createServer(async (req, res) => {
-  if (req.method === "GET" && req.url === "/post-now") {
+  if (req.method === "GET" && (req.url === "/post-now" || req.url === "/postnow")) {
     if (posting) {
       res.writeHead(429); res.end("Already posting, wait...");
       return;
