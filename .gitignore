@@ -2,5 +2,5 @@ node_modules/
 .env
 session.json
 agent.log
-queue.json
+# queue.json tracked in repo to persist state across Railway deploys
 # tweets30.txt — included in repo so Railway can load the queue

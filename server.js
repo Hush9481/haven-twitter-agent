@@ -86,5 +86,35 @@ async function planDay() {
   log(`Next plan in ~24h`);
 }
 
+// ── Manual HTTP trigger ───────────────────────────────────────────────────────
+import http from "http";
+
+const PORT = process.env.PORT || 3000;
+let posting = false;
+
+http.createServer(async (req, res) => {
+  if (req.method === "GET" && req.url === "/post-now") {
+    if (posting) {
+      res.writeHead(429); res.end("Already posting, wait...");
+      return;
+    }
+    posting = true;
+    res.writeHead(200); res.end("Posting next tweet now...");
+    try {
+      const q = loadQueue();
+      if (q.index >= q.tweets.length) { log("Queue empty!"); posting = false; return; }
+      const ok = await postTweet(q.tweets[q.index], true);
+      if (ok) { q.index++; q.posted++; saveQueue(q); }
+    } catch (e) { log(`Manual post error: ${e.message}`); }
+    posting = false;
+  } else if (req.method === "GET" && req.url === "/status") {
+    const q = loadQueue();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ index: q.index, total: q.tweets.length, remaining: q.tweets.length - q.index }));
+  } else {
+    res.writeHead(200); res.end("HAVEN Agent running");
+  }
+}).listen(PORT, () => log(`HTTP trigger ready on :${PORT} — /post-now | /status`));
+
 log("=== HAVEN Agent — Max Growth Mode ===");
 setTimeout(planDay, 5000);
